@@ -5,11 +5,11 @@ import json
 import os
 
 def carregar_carteira():
-    if not os.path.exists('carteira.json'):
-        print("Erro: Ficheiro 'carteira.json' não encontrado!")
+    if not os.path.exists('data/carteira.json'):
+        print("Erro: Ficheiro 'data/carteira.json' não encontrado!")
         return None
     try:
-        with open('carteira.json', 'r', encoding='utf-8') as arquivo:
+        with open('data/carteira.json', 'r', encoding='utf-8') as arquivo:
             return json.load(arquivo)
     except Exception as e:
         print(f"Erro ao ler o ficheiro JSON: {e}")
@@ -66,20 +66,16 @@ def backfill_historico():
 
     if dados_historicos_gerados:
         df_gerado = pd.DataFrame(dados_historicos_gerados)
-        
-        # --- A CORREÇÃO ESTÁ AQUI ---
         # Agora verificamos se o ficheiro existe E se não está vazio
-        if os.path.exists('historico_portfolio.csv') and os.path.getsize('historico_portfolio.csv') > 0:
-            df_existente = pd.read_csv('historico_portfolio.csv')
+        if os.path.exists('data/historico_portfolio.csv') and os.path.getsize('data/historico_portfolio.csv') > 0:
+            df_existente = pd.read_csv('data/historico_portfolio.csv')
             df_final = pd.concat([df_existente, df_gerado], ignore_index=True)
         else:
             df_final = df_gerado
-        
         df_final.drop_duplicates(subset='Data', keep='last', inplace=True)
         df_final.sort_values(by='Data', inplace=True)
-        
-        df_final.to_csv('historico_portfolio.csv', index=False)
-        print("\nFicheiro 'historico_portfolio.csv' criado/atualizado com sucesso!")
+        df_final.to_csv('data/historico_portfolio.csv', index=False)
+        print("\nFicheiro 'data/historico_portfolio.csv' criado/atualizado com sucesso!")
         print(f"{len(df_final)} registos de histórico foram guardados.")
     else:
         print("Nenhum dado de histórico foi gerado.")

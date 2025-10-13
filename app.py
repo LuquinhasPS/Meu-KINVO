@@ -19,23 +19,19 @@ def carregar_lista_de_ativos():
     ]
     
     try:
-        with open('all_tickers.json', 'r', encoding='utf-8') as f:
+        with open('data/all_tickers.json', 'r', encoding='utf-8') as f:
             dados = json.load(f)
-        
         # Junta todas as listas de ativos numa só
         lista_completa = dados.get("acoes_b3", []) + dados.get("criptomoedas", []) + dados.get("etfs", []) + ativos_manuais
-        
     except FileNotFoundError:
         # Se o ficheiro não existir, usa uma lista manual como fallback
-        print("Aviso: Ficheiro 'all_tickers.json' não encontrado. Usando lista de ativos padrão.")
+        print("Aviso: Ficheiro 'data/all_tickers.json' não encontrado. Usando lista de ativos padrão.")
         lista_completa = [
             "BTC-USD", "ETH-USD", "PETR4.SA", "VALE3.SA", "ITUB4.SA", "GOLD11.SA"
         ]
-        
     # Remove duplicados e ordena a lista
     lista_completa = sorted(list(set(lista_completa)))
-    
-    return ["Selecione ou pesquise um ativo..."] + lista_completa
+    return [""] + lista_completa
 
 # --- Configurações da Página ---
 st.set_page_config(
@@ -45,14 +41,14 @@ st.set_page_config(
 
 # --- Nossas Funções de Backend ---
 def carregar_carteira():
-    if not os.path.exists('carteira.json'): return {}
+    if not os.path.exists('data/carteira.json'): return {}
     try:
-        with open('carteira.json', 'r', encoding='utf-8') as arquivo:
+        with open('data/carteira.json', 'r', encoding='utf-8') as arquivo:
             return json.load(arquivo)
     except (FileNotFoundError, json.JSONDecodeError): return {}
 
 def salvar_carteira(carteira):
-    with open('carteira.json', 'w', encoding='utf-8') as arquivo:
+    with open('data/carteira.json', 'w', encoding='utf-8') as arquivo:
         json.dump(carteira, arquivo, indent=4)
 
 def buscar_taxa_dolar():
@@ -148,7 +144,7 @@ if minha_carteira:
         df_carteira['Tipo'] = df_carteira['Ativo'].apply(categorizar_ativo)
         
         st.subheader("Evolução do Património")
-        nome_ficheiro_historico = 'historico_portfolio.csv'
+        nome_ficheiro_historico = 'data/historico_portfolio.csv'
         total_atual_completo = df_carteira["Valor Atual (R$)"].sum()
         hoje = date.today().strftime('%Y-%m-%d')
         if os.path.exists(nome_ficheiro_historico) and os.path.getsize(nome_ficheiro_historico) > 0:

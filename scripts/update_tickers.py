@@ -57,11 +57,10 @@ def atualizar_lista_completa():
         "etfs": sorted(etfs)
     }
 
-    with open('all_tickers.json', 'w', encoding='utf-8') as f:
+    with open('data/all_tickers.json', 'w', encoding='utf-8') as f:
         json.dump(dados_finais, f, indent=4)
-        
     total = len(b3_tickers) + len(crypto_tickers) + len(etfs)
-    print(f"\nSucesso! {total} tickers foram guardados em 'all_tickers.json'.")
+    print(f"\nSucesso! {total} tickers foram guardados em 'data/all_tickers.json'.")
 
 if __name__ == "__main__":
     atualizar_lista_completa()
