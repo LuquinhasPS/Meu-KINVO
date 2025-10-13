@@ -9,5 +9,4 @@ __pycache__/
 
 # Ficheiros de configuração de IDEs (ex: VS Code)
 .vscode/
-carteira.json
-historico_portfolio.csv
+
