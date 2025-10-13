@@ -1,0 +1,13 @@
+# Ficheiros de dados pessoais e gerados
+carteira.json
+historico_portfolio.csv
+all_tickers.json
+
+# Pastas de ambiente virtual Python
+venv/
+__pycache__/
+
+# Ficheiros de configuração de IDEs (ex: VS Code)
+.vscode/
+carteira.json
+historico_portfolio.csv
