@@ -1,0 +1,138 @@
+{
+    "PETR4.SA": [
+        {
+            "tipo": "compra",
+            "data": "2025-09-16",
+            "quantidade": 20,
+            "preco_unitario": 31.54
+        }
+    ],
+    "VALE3.SA": [
+        {
+            "tipo": "compra",
+            "data": "2025-09-22",
+            "quantidade": 5,
+            "preco_unitario": 58.24
+        }
+    ],
+        "BBAS3.SA": [
+        {
+            "tipo": "compra",
+            "data": "2025-08-05",
+            "quantidade": 8,
+            "preco_unitario": 18.72
+        }
+    ],
+    "GOLD11.SA": [
+        {
+            "tipo": "compra",
+            "data": "2025-02-06",
+            "quantidade": 25,
+            "preco_unitario": 17.25
+        },        
+        {
+            "tipo": "compra",
+            "data": "2025-08-05",
+            "quantidade": 25,
+            "preco_unitario": 19.45
+        }
+    ],
+    "BTC-USD": [
+        {
+            "tipo": "compra",
+            "data": "2024-05-07",
+            "quantidade": 0.00061740,
+            "preco_unitario": 321347.58
+        },
+        {
+            "tipo": "compra",
+            "data": "2025-06-13",
+            "quantidade": 0.00027454,
+            "preco_unitario": 359146.20
+        },
+                {
+            "tipo": "compra",
+            "data": "2024-08-06",
+            "quantidade": 0.00030802,
+            "preco_unitario": 320109.08
+        },
+                {
+            "tipo": "compra",
+            "data": "2024-08-07",
+            "quantidade": 0.00031351,
+            "preco_unitario": 315141.46
+        },       
+                {
+            "tipo": "compra",
+            "data": "2024-08-07",
+            "quantidade": 0.00063537,
+            "preco_unitario": 310998.88
+        },  
+                {
+            "tipo": "compra",
+            "data": "2024-08-15",
+            "quantidade": 0.00063200,
+            "preco_unitario": 313291.13
+        },         
+        {
+            "tipo": "compra",
+            "data": "2025-09-09",
+            "quantidade": 0.00082387,
+            "preco_unitario": 603250.51
+        }
+
+    ],
+    "ETH-USD": [
+        {
+            "tipo": "compra",
+            "data": "2024-06-13",
+            "quantidade": 0.00528456,
+            "preco_unitario": 18658.12
+        },
+        {
+            "tipo": "compra",
+            "data": "2024-08-06",
+            "quantidade": 0.00699378,
+            "preco_unitario": 14098.24
+        },
+                {
+            "tipo": "compra",
+            "data": "2024-08-07",
+            "quantidade": 0.01485110,
+            "preco_unitario": 13305.41
+        },
+        {
+            "tipo": "compra",
+            "data": "2025-02-04",
+            "quantidade": 0.01822518,
+            "preco_unitario": 16329.05
+        }
+    ],
+    "SOL-USD": [
+        {
+            "tipo": "compra",
+            "data": "2025-01-10",
+            "quantidade": 0.12864157,
+            "preco_unitario": 1539.16
+        },
+        {
+            "tipo": "compra",
+            "data": "2025-09-09",
+            "quantidade": 0.08600918,
+            "preco_unitario": 1153.36
+        }
+    ],
+    "XRP-USD": [
+        {
+            "tipo": "compra",
+            "data": "2025-01-20",
+            "quantidade": 10.0441,
+            "preco_unitario": 19.71
+        }
+    ]
+}
+
+
+
+
+
