@@ -59,3 +59,32 @@ O uso da aplicação é dividido em duas partes: a atualização da base de dado
     streamlit run app.py
     ```
     A aplicação abrirá automaticamente no seu navegador. Para adicionar novas compras, use o formulário na barra lateral.
+
+    ## Demonstração Visual
+
+A aplicação oferece uma visão completa e detalhada da carteira de investimentos.
+
+### Painel Principal
+O dashboard principal apresenta um resumo consolidado da carteira, a evolução do património ao longo do tempo e filtros interativos.
+
+![Painel Principal da Aplicação](screenshots/painel-principal.png)
+
+### Detalhes dos Ativos
+Uma tabela detalhada mostra a performance de cada ativo individualmente, com métricas de rentabilidade e valores atualizados em tempo real.
+
+![Tabela com detalhes dos ativos](screenshots/painel-detalhes-ativos.png)
+
+### Análise Gráfica
+Gráficos de pizza interativos permitem visualizar a alocação da carteira por cada ativo e também por tipo de ativo (Ações, ETFs, Criptomoedas).
+
+![Gráficos de alocação da carteira](screenshots/analise-grafica-carteira.png)
+
+### Análise de Aportes
+A secção de aportes exibe um gráfico de barras com o total investido a cada mês e uma lista detalhada de cada compra realizada.
+
+![Gráfico e lista de aportes realizados](screenshots/analise-aportes.png)
+
+### Formulário de Transações
+Através da barra lateral, é possível adicionar novas transações de compra de forma rápida e segura, com uma lista pesquisável de todos os ativos da B3 e das principais criptomoedas.
+
+![Formulário para adicionar novas compras](screenshots/formulario-nova-compra.png)
