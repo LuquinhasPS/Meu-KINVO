@@ -1,26 +1,100 @@
 {
-    "PETR4.SA": [
+    "ITSA4.SA": [
         {
             "tipo": "compra",
-            "data": "2025-08-05",
-            "quantidade": 10,
-            "preco_unitario": 30.10
+            "data": "2024-05-15",
+            "quantidade": 100,
+            "preco_unitario": 8.50
+        },
+        {
+            "tipo": "compra",
+            "data": "2025-01-20",
+            "quantidade": 150,
+            "preco_unitario": 9.20
         }
     ],
-    "MGLU3.SA": [
+    "WEGE3.SA": [
         {
             "tipo": "compra",
-            "data": "2025-09-10",
+            "data": "2024-06-10",
+            "quantidade": 30,
+            "preco_unitario": 35.40
+        }
+    ],
+    "BBDC4.SA": [
+        {
+            "tipo": "compra",
+            "data": "2024-07-22",
+            "quantidade": 200,
+            "preco_unitario": 12.80
+        }
+    ],
+    "SUZB3.SA": [
+        {
+            "tipo": "compra",
+            "data": "2024-08-01",
+            "quantidade": 25,
+            "preco_unitario": 50.00
+        }
+    ],
+    "PRIO3.SA": [
+        {
+            "tipo": "compra",
+            "data": "2025-03-18",
             "quantidade": 50,
-            "preco_unitario": 2.50
+            "preco_unitario": 45.70
+        }
+    ],
+    "BOVA11.SA": [
+        {
+            "tipo": "compra",
+            "data": "2024-05-20",
+            "quantidade": 10,
+            "preco_unitario": 120.00
+        },
+        {
+            "tipo": "compra",
+            "data": "2025-02-10",
+            "quantidade": 5,
+            "preco_unitario": 128.50
+        }
+    ],
+    "IVVB11.SA": [
+        {
+            "tipo": "compra",
+            "data": "2024-09-05",
+            "quantidade": 10,
+            "preco_unitario": 280.00
         }
     ],
     "BTC-USD": [
         {
             "tipo": "compra",
-            "data": "2025-08-20",
-            "quantidade": 0.002,
-            "preco_unitario": 65000.00
+            "data": "2024-11-05",
+            "quantidade": 0.01,
+            "preco_unitario": 340000.00
+        },
+        {
+            "tipo": "compra",
+            "data": "2025-04-12",
+            "quantidade": 0.005,
+            "preco_unitario": 390000.00
+        }
+    ],
+    "ETH-USD": [
+        {
+            "tipo": "compra",
+            "data": "2024-12-01",
+            "quantidade": 0.2,
+            "preco_unitario": 19000.00
+        }
+    ],
+    "SOL-USD": [
+        {
+            "tipo": "compra",
+            "data": "2025-06-25",
+            "quantidade": 10,
+            "preco_unitario": 750.00
         }
     ]
 }
