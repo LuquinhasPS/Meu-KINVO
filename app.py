@@ -1,8 +1,7 @@
-
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import json
 import plotly.express as px
 import os
@@ -10,26 +9,6 @@ import time
 from io import StringIO
 import requests
 
-
-# Função migrada do diagnostico.py
-def extrair_dividendos_fundamentus(ticker_symbol):
-    ticker_sem_sa = ticker_symbol.replace(".SA", "")
-    url = f"https://www.fundamentus.com.br/proventos.php?papel={ticker_sem_sa}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        tabelas = pd.read_html(StringIO(response.text), decimal=',', thousands='.')
-        if not tabelas:
-            return []
-        df = tabelas[0]
-        df_renomeado = df.rename(columns={"Data": "data_ex", "Valor": "valor", "Data de Pagamento": "data_pag"})
-        df_renomeado['data_ex'] = pd.to_datetime(df_renomeado['data_ex'], format='%d/%m/%Y').dt.date
-        df_renomeado['data_pag'] = pd.to_datetime(df_renomeado['data_pag'], format='%d/%m/%Y', errors='coerce').dt.date
-        resultado = df_renomeado[['valor', 'data_ex', 'data_pag']].to_dict('records')
-        return resultado
-    except Exception:
-        return []
 # --- Funções de Carregamento ---
 def carregar_lista_de_ativos():
     ativos_manuais = ["IVVB11.SA", "GOLD11.SA", "SMAL11.SA", "BOVA11.SA"]
@@ -73,42 +52,63 @@ def buscar_preco_ativo(ticker_symbol, taxa_dolar):
         return dados_hoje['Close'].iloc[-1] if not dados_hoje.empty else None
     except Exception: return None
 
-# --- VERSÃO FINAL E VALIDADA DA FUNÇÃO DE DIVIDENDOS ---
-@st.cache_data(ttl=3600) # Adiciona cache para não buscar os mesmos dados repetidamente por 1 hora
+# --- VERSÃO FINAL E DEFINITIVA DA FUNÇÃO DE DIVIDENDOS ---
+@st.cache_data(ttl=3600)
 def buscar_info_dividendos_detalhados(ticker_symbol):
     if not ticker_symbol.endswith('.SA'):
         return []
 
-    dividendos = extrair_dividendos_fundamentus(ticker_symbol)
-    hoje = date.today()
+    proventos_encontrados = []
+    
+    # Fonte 1: Fundamentus (nossa fonte primária e mais completa)
+    try:
+        ticker_sem_sa = ticker_symbol.replace(".SA", "")
+        url = f"https://www.fundamentus.com.br/proventos.php?papel={ticker_sem_sa}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        tabelas = pd.read_html(StringIO(response.text), decimal=',', thousands='.')
+        if tabelas:
+            df = tabelas[0].rename(columns={"Data": "data_ex", "Valor": "valor", "Data de Pagamento": "data_pag"})
+            df['data_ex'] = pd.to_datetime(df['data_ex'], format='%d/%m/%Y').dt.date
+            df['data_pag'] = pd.to_datetime(df['data_pag'], format='%d/%m/%Y', errors='coerce').dt.date
+            proventos_encontrados.extend(df[['valor', 'data_ex', 'data_pag']].to_dict('records'))
+    except Exception: pass
+
+    # Fonte 2: yfinance (usado para complementar, caso Fundamentus falhe ou tenha dados que o Fundamentus não tem)
+    try:
+        ticker_obj = yf.Ticker(ticker_symbol)
+        for data_ex_yf, valor_yf in ticker_obj.dividends.tail(10).items():
+            data_ex_yf = data_ex_yf.date()
+            # Verifica se este provento já foi encontrado pela fonte Fundamentus (evita duplicados)
+            ja_existe = any(
+                abs((p['data_ex'] - data_ex_yf).days) <= 5 and abs(p['valor'] - valor_yf) < 0.001
+                for p in proventos_encontrados
+            )
+            if not ja_existe:
+                proventos_encontrados.append({"valor": valor_yf, "data_ex": data_ex_yf, "data_pag": None})
+    except Exception: pass
+
+    # Classificação final
     proventos_finais = []
-    filtro_data = date(2020, 1, 1)
-    for d in dividendos:
-        if d['data_ex'] < filtro_data:
-            continue
-        # Ignora proventos cuja data_pag já passou, mas só se data_pag está definida
-        if d['data_pag'] is not None and pd.notna(d['data_pag']) and d['data_pag'] < hoje and d['data_ex'] <= hoje:
-            continue
+    hoje = date.today()
+    for provento in proventos_encontrados:
         status = None
-        # Proventos com data_ex futura (ainda não passou)
-        if d['data_ex'] > hoje:
-            if d['data_pag'] is not None and pd.notna(d['data_pag']) and d['data_pag'] > hoje:
-                status = "Provisionado"
-            else:
-                status = "Anunciado"
-        # Proventos com data_ex passada
-        else:
-            if d['data_pag'] is not None and pd.notna(d['data_pag']) and d['data_pag'] > hoje:
+        data_ex = provento['data_ex']
+        data_pag = provento.get('data_pag')
+        
+        if data_ex > hoje:
+            status = "Provisionado"
+        elif data_ex < hoje:
+            if data_pag is None or pd.isna(data_pag) or data_pag > hoje:
                 status = "Qualificado"
-            else:
-                status = "Aguardando Pagamento"
+
         if status:
             proventos_finais.append({
-                "valor": d['valor'],
-                "data_ex": d['data_ex'],
-                "data_pag": d['data_pag'],
-                "status": status
+                "valor": provento['valor'], "data_ex": data_ex,
+                "data_pag": data_pag, "status": status
             })
+            
     return proventos_finais
 
 def validar_ticker(ticker_symbol):
@@ -181,19 +181,16 @@ if minha_carteira:
             lista_proventos = buscar_info_dividendos_detalhados(ticker)
             for provento in lista_proventos:
                 quantidade_habilitada = sum(t['quantidade'] for t in transacoes if t['tipo'] == 'compra' and datetime.strptime(t["data"], "%Y-%m-%d").date() < provento['data_ex'])
-                valor_a_receber = quantidade_habilitada * provento['valor'] if quantidade_habilitada > 0 else 0
-                # Ajusta exibição da data de pagamento para proventos sem data_pag
-                data_pagamento_exibir = provento['data_pag'] if provento['data_pag'] is not None and pd.notna(provento['data_pag']) else 'A confirmar'
-                proventos_detalhados.append({
-                    "Ativo": ticker,
-                    "Status": provento['status'],
-                    "Valor por Ação (R$)": provento['valor'],
-                    "Data Ex": provento['data_ex'],
-                    "Data Pagamento": data_pagamento_exibir,
-                    "Total a Receber (R$)": valor_a_receber
-                })
-                if provento['status'] == 'Qualificado':
-                    valor_total_qualificado += valor_a_receber
+                if quantidade_habilitada > 0:
+                    valor_a_receber = quantidade_habilitada * provento['valor']
+                    
+                    proventos_detalhados.append({
+                        "Ativo": ticker, "Status": provento['status'], "Valor por Ação (R$)": provento['valor'],
+                        "Data Ex": provento['data_ex'], "Data Pagamento": provento['data_pag'], "Total a Receber (R$)": valor_a_receber
+                    })
+                    
+                    if provento['status'] == 'Qualificado':
+                        valor_total_qualificado += valor_a_receber
             
             dados_processados.append({
                 "Ativo": ticker, "Quantidade": quantidade_total, "Preço Médio (R$)": preco_medio,
@@ -236,7 +233,7 @@ if minha_carteira:
         total_atual_filtrado = df_filtrado["Valor Atual (R$)"].sum()
         lucro_prejuizo_total = total_atual_filtrado - total_investido
         rentabilidade_total = (lucro_prejuizo_total / total_investido) * 100 if total_investido > 0 else 0
-        total_dividendos = df_filtrado["Dividendos a Receber (R$)"] .sum()
+        total_dividendos = df_filtrado["Dividendos a Receber (R$)"].sum()
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Valor Total Investido", f"R$ {total_investido:,.2f}")
         col2.metric("Valor Atual da Carteira", f"R$ {total_atual_filtrado:,.2f}", f"{lucro_prejuizo_total:,.2f} R$")
@@ -251,41 +248,11 @@ if minha_carteira:
         st.subheader("Detalhes dos Proventos")
         if proventos_detalhados:
             df_proventos = pd.DataFrame(proventos_detalhados)
-            df_proventos['Data Pagamento'] = df_proventos['Data Pagamento'].astype(str)
-            df_proventos.sort_values(by="Data Pagamento", inplace=True)
+            df_proventos.sort_values(by="Data Pagamento", na_position='last', inplace=True)
             df_proventos['Data Ex'] = pd.to_datetime(df_proventos['Data Ex']).dt.strftime('%d/%m/%Y')
-            df_proventos['Data Pagamento'] = df_proventos['Data Pagamento'].apply(
-                lambda x: x.strftime('%d/%m/%Y') if isinstance(x, (datetime, date)) else str(x)
-            )
+            df_proventos['Data Pagamento'] = df_proventos['Data Pagamento'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else 'A confirmar')
             
-            st.dataframe(df_proventos.style
-                .apply(lambda col: col.map(colorir_status), subset=['Status'])
-                .format({
-                    "Valor por Ação (R$)": "R$ {:,.4f}",
-                    "Total a Receber (R$)": "R$ {:,.2f}"
-                }), use_container_width=True, hide_index=True)
-
-            # --- Gráfico de histórico de dividendos mês a mês ---
-            df_hist_div = df_proventos.copy()
-            # Considera apenas proventos com data de pagamento definida (exclui 'A confirmar')
-            df_hist_div = df_hist_div[df_hist_div['Data Pagamento'] != 'A confirmar']
-            if not df_hist_div.empty:
-                df_hist_div['Data Pagamento'] = pd.to_datetime(df_hist_div['Data Pagamento'], format='mixed')
-                df_hist_div['AnoMes'] = df_hist_div['Data Pagamento'].dt.strftime('%Y-%m')
-                hoje = pd.to_datetime(date.today())
-                # Recebidos: data_pag já passou
-                recebidos = df_hist_div[df_hist_div['Data Pagamento'] < hoje].groupby('AnoMes')['Total a Receber (R$)'].sum()
-                # Previstos: data_pag futura
-                previstos = df_hist_div[df_hist_div['Data Pagamento'] >= hoje].groupby('AnoMes')['Total a Receber (R$)'].sum()
-                df_grafico = pd.DataFrame({
-                    'Recebidos': recebidos,
-                    'Previstos': previstos
-                }).fillna(0)
-                st.subheader('Histórico de Dividendos (Mês a Mês)')
-                fig_div = px.bar(df_grafico, x=df_grafico.index, y=['Recebidos', 'Previstos'], barmode='group',
-                                 title='Dividendos Recebidos e Previstos por Mês',
-                                 labels={'value': 'R$','AnoMes': 'Mês'})
-                st.plotly_chart(fig_div, use_container_width=True)
+            st.dataframe(df_proventos.style.apply(lambda col: col.map(colorir_status), subset=['Status']).format({ "Valor por Ação (R$)": "R$ {:,.4f}", "Total a Receber (R$)": "R$ {:,.2f}"}), use_container_width=True, hide_index=True)
         else:
             st.info("Nenhum provento (qualificado ou provisionado) encontrado para as ações na sua carteira.")
 
