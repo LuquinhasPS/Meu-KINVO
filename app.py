@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 import json
 import plotly.express as px
 import os
@@ -52,64 +52,52 @@ def buscar_preco_ativo(ticker_symbol, taxa_dolar):
         return dados_hoje['Close'].iloc[-1] if not dados_hoje.empty else None
     except Exception: return None
 
-# --- VERSÃO FINAL E DEFINITIVA DA FUNÇÃO DE DIVIDENDOS ---
+# --- VERSÃO FINAL E VALIDADA DA FUNÇÃO DE DIVIDENDOS ---
 @st.cache_data(ttl=3600)
 def buscar_info_dividendos_detalhados(ticker_symbol):
     if not ticker_symbol.endswith('.SA'):
         return []
 
-    proventos_encontrados = []
+    proventos_finais = []
+    hoje = date.today()
     
-    # Fonte 1: Fundamentus (nossa fonte primária e mais completa)
     try:
+        # Fonte Única e Primária: Fundamentus
         ticker_sem_sa = ticker_symbol.replace(".SA", "")
         url = f"https://www.fundamentus.com.br/proventos.php?papel={ticker_sem_sa}"
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         tabelas = pd.read_html(StringIO(response.text), decimal=',', thousands='.')
-        if tabelas:
-            df = tabelas[0].rename(columns={"Data": "data_ex", "Valor": "valor", "Data de Pagamento": "data_pag"})
-            df['data_ex'] = pd.to_datetime(df['data_ex'], format='%d/%m/%Y').dt.date
-            df['data_pag'] = pd.to_datetime(df['data_pag'], format='%d/%m/%Y', errors='coerce').dt.date
-            proventos_encontrados.extend(df[['valor', 'data_ex', 'data_pag']].to_dict('records'))
-    except Exception: pass
-
-    # Fonte 2: yfinance (usado para complementar, caso Fundamentus falhe ou tenha dados que o Fundamentus não tem)
-    try:
-        ticker_obj = yf.Ticker(ticker_symbol)
-        for data_ex_yf, valor_yf in ticker_obj.dividends.tail(10).items():
-            data_ex_yf = data_ex_yf.date()
-            # Verifica se este provento já foi encontrado pela fonte Fundamentus (evita duplicados)
-            ja_existe = any(
-                abs((p['data_ex'] - data_ex_yf).days) <= 5 and abs(p['valor'] - valor_yf) < 0.001
-                for p in proventos_encontrados
-            )
-            if not ja_existe:
-                proventos_encontrados.append({"valor": valor_yf, "data_ex": data_ex_yf, "data_pag": None})
-    except Exception: pass
-
-    # Classificação final
-    proventos_finais = []
-    hoje = date.today()
-    for provento in proventos_encontrados:
-        status = None
-        data_ex = provento['data_ex']
-        data_pag = provento.get('data_pag')
         
-        if data_ex > hoje:
-            status = "Provisionado"
-        elif data_ex < hoje:
-            if data_pag is None or pd.isna(data_pag) or data_pag > hoje:
-                status = "Qualificado"
+        if not tabelas:
+            return []
 
-        if status:
-            proventos_finais.append({
-                "valor": provento['valor'], "data_ex": data_ex,
-                "data_pag": data_pag, "status": status
-            })
+        df = tabelas[0].rename(columns={"Data": "data_ex", "Valor": "valor", "Data de Pagamento": "data_pag"})
+        df['data_ex'] = pd.to_datetime(df['data_ex'], format='%d/%m/%Y').dt.date
+        df['data_pag'] = pd.to_datetime(df['data_pag'], format='%d/%m/%Y', errors='coerce').dt.date
+
+        # Lógica de Classificação Aplicada Diretamente
+        for _, provento in df.iterrows():
+            status = None
+            data_ex = provento['data_ex']
+            data_pag = provento['data_pag']
+
+            if pd.notna(data_pag) and data_pag < hoje:
+                status = "Recebido" # Será filtrado mais tarde, mas é bom classificar
+            elif data_ex < hoje and (pd.isna(data_pag) or data_pag >= hoje):
+                status = "Qualificado"
+            elif data_ex > hoje:
+                status = "Provisionado"
             
-    return proventos_finais
+            if status:
+                proventos_finais.append({
+                    "valor": provento['valor'], "data_ex": data_ex,
+                    "data_pag": data_pag, "status": status
+                })
+        return proventos_finais
+    except Exception:
+        return []
 
 def validar_ticker(ticker_symbol):
     try:
@@ -126,6 +114,7 @@ def colorir_rentabilidade(valor):
 def colorir_status(status):
     if status == 'Qualificado': return 'color: lightgreen'
     elif status == 'Provisionado': return 'color: lightblue'
+    elif status == 'Recebido': return 'color: grey'
     return ''
 
 # --- Formulário na Barra Lateral ---
@@ -176,26 +165,27 @@ if minha_carteira:
             preco_atual = buscar_preco_ativo(ticker, taxa_dolar_atual)
             valor_atual = preco_atual * quantidade_total if preco_atual else custo_total
             
-            valor_total_qualificado = 0
+            valor_total_qualificado_e_provisionado = 0
             
             lista_proventos = buscar_info_dividendos_detalhados(ticker)
             for provento in lista_proventos:
-                quantidade_habilitada = sum(t['quantidade'] for t in transacoes if t['tipo'] == 'compra' and datetime.strptime(t["data"], "%Y-%m-%d").date() < provento['data_ex'])
-                if quantidade_habilitada > 0:
-                    valor_a_receber = quantidade_habilitada * provento['valor']
-                    
-                    proventos_detalhados.append({
-                        "Ativo": ticker, "Status": provento['status'], "Valor por Ação (R$)": provento['valor'],
-                        "Data Ex": provento['data_ex'], "Data Pagamento": provento['data_pag'], "Total a Receber (R$)": valor_a_receber
-                    })
-                    
-                    if provento['status'] == 'Qualificado':
-                        valor_total_qualificado += valor_a_receber
+                # Mostramos todos os proventos não recebidos na tabela de detalhes
+                if provento['status'] in ['Qualificado', 'Provisionado']:
+                    quantidade_habilitada = sum(t['quantidade'] for t in transacoes if t['tipo'] == 'compra' and datetime.strptime(t["data"], "%Y-%m-%d").date() < provento['data_ex'])
+                    if quantidade_habilitada > 0:
+                        valor_a_receber = quantidade_habilitada * provento['valor']
+                        proventos_detalhados.append({
+                            "Ativo": ticker, "Status": provento['status'], "Valor por Ação (R$)": provento['valor'],
+                            "Data Ex": provento['data_ex'], "Data Pagamento": provento['data_pag'], "Total a Receber (R$)": valor_a_receber
+                        })
+                        # O resumo no topo só conta os proventos já garantidos ("Qualificado")
+                        if provento['status'] == 'Qualificado':
+                            valor_total_qualificado_e_provisionado += valor_a_receber
             
             dados_processados.append({
                 "Ativo": ticker, "Quantidade": quantidade_total, "Preço Médio (R$)": preco_medio,
                 "Custo Total (R$)": custo_total, "Preço Atual (R$)": preco_atual, "Valor Atual (R$)": valor_atual,
-                "Dividendos a Receber (R$)": valor_total_qualificado
+                "Dividendos a Receber (R$)": valor_total_qualificado_e_provisionado
             })
     
     df_carteira = pd.DataFrame(dados_processados)
@@ -248,7 +238,7 @@ if minha_carteira:
         st.subheader("Detalhes dos Proventos")
         if proventos_detalhados:
             df_proventos = pd.DataFrame(proventos_detalhados)
-            df_proventos.sort_values(by="Data Pagamento", na_position='last', inplace=True)
+            df_proventos.sort_values(by="Data Ex", ascending=False, inplace=True)
             df_proventos['Data Ex'] = pd.to_datetime(df_proventos['Data Ex']).dt.strftime('%d/%m/%Y')
             df_proventos['Data Pagamento'] = df_proventos['Data Pagamento'].apply(lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else 'A confirmar')
             
