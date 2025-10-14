@@ -8,7 +8,7 @@
         },
         {
             "tipo": "compra",
-            "data": "2025-01-20",
+            "data": "2024-01-20",
             "quantidade": 150,
             "preco_unitario": 9.20
         }
@@ -40,7 +40,7 @@
     "PRIO3.SA": [
         {
             "tipo": "compra",
-            "data": "2025-03-18",
+            "data": "2024-03-18",
             "quantidade": 50,
             "preco_unitario": 45.70
         }
@@ -65,6 +65,22 @@
             "data": "2024-09-05",
             "quantidade": 10,
             "preco_unitario": 280.00
+        }
+    ],
+    "PETR4.SA": [
+        {
+            "tipo": "compra",
+            "data": "2024-07-10",
+            "quantidade": 100,
+            "preco_unitario": 38.50
+        }
+    ],
+    "TAEE11.SA": [
+        {
+            "tipo": "compra",
+            "data": "2024-08-15",
+            "quantidade": 50,
+            "preco_unitario": 35.80
         }
     ],
     "BTC-USD": [
