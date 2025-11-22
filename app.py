@@ -1,14 +1,39 @@
+
 import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import date, datetime
 import json
-import pytz
 import plotly.express as px
 import os
 import time
+from io import StringIO
+import requests
 
-# --- Função para carregar a lista de tickers ---
+
+# --- Configurações da Página ---
+st.set_page_config(page_title="Meu Painel de Investimentos", layout="wide")
+
+# --- Funções de Backend ---
+def extrair_dividendos_fundamentus(ticker_symbol):
+    ticker_sem_sa = ticker_symbol.replace(".SA", "")
+    url = f"https://www.fundamentus.com.br/proventos.php?papel={ticker_sem_sa}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        tabelas = pd.read_html(StringIO(response.text), decimal=',', thousands='.')
+        if not tabelas:
+            return []
+        df = tabelas[0]
+        df_renomeado = df.rename(columns={"Data": "data_ex", "Valor": "valor", "Data de Pagamento": "data_pag"})
+        df_renomeado['data_ex'] = pd.to_datetime(df_renomeado['data_ex'], format='%d/%m/%Y').dt.date
+        df_renomeado['data_pag'] = pd.to_datetime(df_renomeado['data_pag'], format='%d/%m/%Y', errors='coerce').dt.date
+        resultado = df_renomeado[['valor', 'data_ex', 'data_pag']].to_dict('records')
+        return resultado
+    except Exception:
+        return []
+
 def carregar_lista_de_ativos():
     ativos_manuais = ["IVVB11.SA", "GOLD11.SA", "SMAL11.SA", "BOVA11.SA"]
     try:
@@ -19,10 +44,6 @@ def carregar_lista_de_ativos():
         lista_completa = ["BTC-USD", "ETH-USD", "PETR4.SA", "VALE3.SA", "ITUB4.SA", "GOLD11.SA"]
     return ["Selecione ou pesquise um ativo..."] + sorted(list(set(lista_completa)))
 
-# --- Configurações da Página ---
-st.set_page_config(page_title="Meu Painel de Investimentos", layout="wide")
-
-# --- Nossas Funções de Backend ---
 def carregar_carteira():
     caminho = 'data/carteira.json'
     if not os.path.exists(caminho): return {}
@@ -47,46 +68,21 @@ def buscar_preco_ativo(ticker_symbol, taxa_dolar):
         if "-USD" in ticker_symbol:
             preco_usd = ticker.info.get('regularMarketPrice')
             return preco_usd * taxa_dolar if preco_usd and taxa_dolar else None
-        dados_hoje = ticker.history(period="1d", auto_adjust=False)
-        return dados_hoje['Close'].iloc[-1] if not dados_hoje.empty else None
-    except Exception: return None
-
-# NOVIDADE: Função de dividendos agora busca também a data de pagamento
-def buscar_info_dividendos(ticker_symbol):
-    if not ticker_symbol.endswith('.SA'):
-        return None, None, None # Retorna 3 valores
-    try:
-        ticker = yf.Ticker(ticker_symbol)
-        info = ticker.info
-        
-        if 'exDividendDate' in info and info['exDividendDate'] is not None and \
-           'lastDividendValue' in info and info['lastDividendValue'] is not None:
-            
-            timestamp_ex_date = info['exDividendDate']
-            data_ex = datetime.fromtimestamp(timestamp_ex_date).date()
-
-            if data_ex > date.today():
-                valor_dividendo = info['lastDividendValue']
-                data_pagamento = None
-                
-                # Tenta buscar a data de pagamento no calendário de eventos
-                try:
-                    calendar = ticker.calendar
-                    if 'Dividend Date' in calendar and not calendar['Dividend Date'].empty:
-                        pay_date_data = calendar['Dividend Date'].iloc[0]
-                        # Converte para data, independentemente do formato (timestamp ou data)
-                        if isinstance(pay_date_data, (int, float)):
-                           data_pagamento = datetime.fromtimestamp(pay_date_data).date()
-                        elif isinstance(pay_date_data, pd.Timestamp):
-                           data_pagamento = pay_date_data.date()
-                except Exception:
-                    pass # Se não encontrar, data_pagamento continua None
-
-                return valor_dividendo, data_ex, data_pagamento
-                
-        return None, None, None
+        else:
+            return ticker.history(period='1d')['Close'].iloc[-1]
     except Exception:
-        return None, None, None
+        return None
+
+def colorir_status(status):
+    if status == 'Qualificado': return 'color: lightgreen'
+    elif status == 'Provisionado': return 'color: lightblue'
+    return ''
+
+def colorir_rentabilidade(val):
+    if isinstance(val, (int, float)):
+        color = 'lightgreen' if val >= 0 else 'lightcoral'
+        return f'color: {color}'
+    return ''
 
 def validar_ticker(ticker_symbol):
     try:
@@ -94,14 +90,44 @@ def validar_ticker(ticker_symbol):
         return not ticker.history(period='1d').empty
     except Exception: return False
 
-def colorir_rentabilidade(valor):
-    if isinstance(valor, (int, float)):
-        cor = 'green' if valor > 0 else 'red' if valor < 0 else 'white'
-        return f'color: {cor}'
-    return ''
+@st.cache_data(ttl=3600)
+def buscar_info_dividendos_detalhados(ticker_symbol):
+    if not ticker_symbol.endswith('.SA'):
+        return []
+
+    dividendos = extrair_dividendos_fundamentus(ticker_symbol)
+    hoje = date.today()
+    proventos_finais = []
+    filtro_data = date(2000, 1, 1)
+    for d in dividendos:
+        if d['data_ex'] < filtro_data:
+            continue
+        
+        status = None
+        if d['data_ex'] > hoje:
+            if d['data_pag'] is not None and pd.notna(d['data_pag']) and d['data_pag'] > hoje:
+                status = "Provisionado"
+            else:
+                status = "Anunciado"
+        else:
+            if d['data_pag'] is not None and pd.notna(d['data_pag']):
+                if d['data_pag'] > hoje:
+                    status = "Qualificado"
+                else:
+                    status = "Pago"
+            else:
+                status = "Aguardando Pagamento"
+        
+        if status:
+            proventos_finais.append({
+                "valor": d['valor'],
+                "data_ex": d['data_ex'],
+                "data_pag": d['data_pag'],
+                "status": status
+            })
+    return proventos_finais
 
 # --- Formulário na Barra Lateral ---
-# ... (código do formulário continua o mesmo)
 with st.sidebar:
     st.header("Adicionar Nova Compra")
     lista_de_ativos_completa = carregar_lista_de_ativos()
@@ -136,8 +162,7 @@ minha_carteira = carregar_carteira()
 
 if minha_carteira:
     taxa_dolar_atual = buscar_taxa_dolar()
-    dados_processados, lista_de_aportes, dividendos_detalhados = [], [], [] # Lista para os detalhes de dividendos
-
+    dados_processados, lista_de_aportes, proventos_detalhados = [], [], []
     for ticker, transacoes in minha_carteira.items():
         quantidade_total, custo_total = 0, 0.0
         for t in transacoes:
@@ -145,46 +170,52 @@ if minha_carteira:
                 quantidade_total += t["quantidade"]
                 custo_total += t["quantidade"] * t["preco_unitario"]
                 lista_de_aportes.append({"Data": t["data"], "Ticker": ticker, "Valor do Aporte": t["quantidade"] * t["preco_unitario"]})
-        
         if quantidade_total > 0:
             preco_medio = custo_total / quantidade_total
             preco_atual = buscar_preco_ativo(ticker, taxa_dolar_atual)
             valor_atual = preco_atual * quantidade_total if preco_atual else custo_total
             
-            valor_provisionado = 0
-            # NOVIDADE: Agora capturamos os 3 valores da função
-            valor_div, data_ex, data_pag = buscar_info_dividendos(ticker)
-            if valor_div is not None:
-                quantidade_habilitada = sum(t['quantidade'] for t in transacoes if t['tipo'] == 'compra' and datetime.strptime(t["data"], "%Y-%m-%d").date() < data_ex)
-                if quantidade_habilitada > 0:
-                    valor_provisionado = quantidade_habilitada * valor_div
-                    # Adiciona os detalhes à nossa nova lista
-                    dividendos_detalhados.append({
-                        "Ativo": ticker,
-                        "Valor por Ação (R$)": valor_div,
-                        "Qtd. Habilitada": quantidade_habilitada,
-                        "Data Ex": data_ex,
-                        "Data Pagamento": data_pag,
-                        "Total a Receber (R$)": valor_provisionado
-                    })
-
+            lista_proventos = buscar_info_dividendos_detalhados(ticker)
+            valor_total_qualificado = 0
+            valor_total_recebido = 0
+            
+            for provento in lista_proventos:
+                quantidade_habilitada = sum(t['quantidade'] for t in transacoes if t['tipo'] == 'compra' and datetime.strptime(t["data"], "%Y-%m-%d").date() < provento['data_ex'])
+                valor_a_receber = quantidade_habilitada * provento['valor'] if quantidade_habilitada > 0 else 0
+                data_pagamento_exibir = provento['data_pag'] if provento['data_pag'] is not None and pd.notna(provento['data_pag']) else 'A confirmar'
+                proventos_detalhados.append({
+                    "Ativo": ticker,
+                    "Status": provento['status'],
+                    "Valor por Ação (R$)": provento['valor'],
+                    "Data Ex": provento['data_ex'],
+                    "Data Pagamento": data_pagamento_exibir,
+                    "Total a Receber (R$)": valor_a_receber
+                })
+                if provento['status'] == 'Qualificado':
+                    valor_total_qualificado += valor_a_receber
+                elif provento['status'] == 'Pago':
+                    valor_total_recebido += valor_a_receber
+            
             dados_processados.append({
                 "Ativo": ticker, "Quantidade": quantidade_total, "Preço Médio (R$)": preco_medio,
                 "Custo Total (R$)": custo_total, "Preço Atual (R$)": preco_atual, "Valor Atual (R$)": valor_atual,
-                "Dividendos a Receber (R$)": valor_provisionado
+                "Dividendos a Receber (R$)": valor_total_qualificado,
+                "Dividendos Recebidos (R$)": valor_total_recebido
             })
     
     df_carteira = pd.DataFrame(dados_processados)
-    
     if not df_carteira.empty:
-        # ... (código de cálculo, histórico e filtros continua igual) ...
         df_carteira['Lucro/Prejuízo (R$)'] = df_carteira['Valor Atual (R$)'] - df_carteira['Custo Total (R$)']
         df_carteira['Rentabilidade (%)'] = (df_carteira['Lucro/Prejuízo (R$)'] / df_carteira['Custo Total (R$)'] * 100).fillna(0)
+        df_carteira['Rentabilidade com Div. (%)'] = ((df_carteira['Valor Atual (R$)'] + df_carteira['Dividendos Recebidos (R$)'] - df_carteira['Custo Total (R$)']) / df_carteira['Custo Total (R$)'] * 100).fillna(0)
+        df_carteira['Lucro/Prejuízo com Div. (R$)'] = df_carteira['Valor Atual (R$)'] + df_carteira['Dividendos Recebidos (R$)'] - df_carteira['Custo Total (R$)']
+
         def categorizar_ativo(ticker):
             if "-USD" in ticker: return "Criptomoeda"
             elif "11.SA" in ticker: return "ETF"
             else: return "Ação"
         df_carteira['Tipo'] = df_carteira['Ativo'].apply(categorizar_ativo)
+        
         st.subheader("Evolução do Património")
         nome_ficheiro_historico = 'data/historico_portfolio.csv'
         total_atual_completo = df_carteira["Valor Atual (R$)"].sum()
@@ -199,40 +230,111 @@ if minha_carteira:
         df_historico.to_csv(nome_ficheiro_historico, index=False)
         fig_historico = px.line(df_historico, x='Data', y='ValorTotal', title='Valor Total da Carteira ao Longo do Tempo', markers=True)
         st.plotly_chart(fig_historico, use_container_width=True)
+        
         st.subheader("Filtros")
         tipos_de_ativo = df_carteira['Tipo'].unique().tolist()
         tipos_selecionados = st.multiselect("Filtrar por Tipo de Ativo:", options=tipos_de_ativo, default=tipos_de_ativo)
         df_filtrado = df_carteira[df_carteira['Tipo'].isin(tipos_selecionados)]
+
         st.subheader("Resumo da Carteira")
         total_investido = df_filtrado["Custo Total (R$)"].sum()
         total_atual_filtrado = df_filtrado["Valor Atual (R$)"].sum()
         lucro_prejuizo_total = total_atual_filtrado - total_investido
         rentabilidade_total = (lucro_prejuizo_total / total_investido) * 100 if total_investido > 0 else 0
-        total_dividendos = df_filtrado["Dividendos a Receber (R$)"].sum()
-        col1, col2, col3, col4 = st.columns(4)
+        
+        total_dividendos = df_filtrado["Dividendos a Receber (R$)"] .sum()
+        total_dividendos_recebidos_geral = df_filtrado["Dividendos Recebidos (R$)"].sum()
+        
+        lucro_prejuizo_total_com_div = total_atual_filtrado + total_dividendos_recebidos_geral - total_investido
+        rentabilidade_total_com_div = (lucro_prejuizo_total_com_div / total_investido) * 100 if total_investido > 0 else 0
+
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         col1.metric("Valor Total Investido", f"R$ {total_investido:,.2f}")
         col2.metric("Valor Atual da Carteira", f"R$ {total_atual_filtrado:,.2f}", f"{lucro_prejuizo_total:,.2f} R$")
-        col3.metric("Rentabilidade Total", f"{rentabilidade_total:.2f}%", f"{rentabilidade_total:.2f}%")
-        col4.metric("Dividendos a Receber", f"R$ {total_dividendos:,.2f}")
-        st.subheader("Detalhes dos Ativos")
-        df_para_exibir = df_filtrado[[ "Ativo", "Tipo", "Quantidade", "Preço Médio (R$)", "Custo Total (R$)", "Preço Atual (R$)", "Valor Atual (R$)", "Dividendos a Receber (R$)", "Lucro/Prejuízo (R$)", "Rentabilidade (%)" ]]
-        formatador = { "Quantidade": "{:,.8f}", "Preço Médio (R$)": "R$ {:,.2f}", "Custo Total (R$)": "R$ {:,.2f}", "Preço Atual (R$)": "R$ {:,.2f}", "Valor Atual (R$)": "R$ {:,.2f}", "Dividendos a Receber (R$)": "R$ {:,.2f}", "Lucro/Prejuízo (R$)": "R$ {:+,.2f}", "Rentabilidade (%)": "{:+.2f}%" }
-        st.dataframe(df_para_exibir.style.apply(lambda col: col.map(colorir_rentabilidade), subset=['Lucro/Prejuízo (R$)', 'Rentabilidade (%)']).format(formatador, decimal=",", thousands="."), use_container_width=True)
-        
-        # NOVIDADE: Nova secção e tabela para os detalhes dos dividendos
-        st.subheader("Detalhes dos Dividendos a Receber")
-        if dividendos_detalhados:
-            df_dividendos = pd.DataFrame(dividendos_detalhados)
-            # Formata as colunas para melhor visualização
-            df_dividendos['Data Ex'] = pd.to_datetime(df_dividendos['Data Ex']).dt.strftime('%d/%m/%Y')
-            df_dividendos['Data Pagamento'] = pd.to_datetime(df_dividendos['Data Pagamento']).dt.strftime('%d/%m/%Y') if pd.notna(df_dividendos['Data Pagamento']).all() else 'A confirmar'
-            df_dividendos['Valor por Ação (R$)'] = df_dividendos['Valor por Ação (R$)'].map('R$ {:,.4f}'.format)
-            df_dividendos['Total a Receber (R$)'] = df_dividendos['Total a Receber (R$)'].map('R$ {:,.2f}'.format)
-            st.dataframe(df_dividendos, use_container_width=True, hide_index=True)
-        else:
-            st.info("Nenhum dividendo provisionado para as ações na sua carteira.")
+        col3.metric("Rentabilidade Total", f"{rentabilidade_total:.2f}%")
+        col4.metric("Rentab. Total c/ Div.", f"{rentabilidade_total_com_div:.2f}%", f"{rentabilidade_total_com_div:.2f}%")
+        col5.metric("Dividendos a Receber", f"R$ {total_dividendos:,.2f}")
+        col6.metric("Total Div. Recebidos", f"R$ {total_dividendos_recebidos_geral:,.2f}")
 
-        # ... (código dos gráficos de aportes e alocação continua igual)
+        st.subheader("Detalhes dos Ativos")
+        df_para_exibir = df_filtrado[[ "Ativo", "Tipo", "Quantidade", "Preço Médio (R$)", "Custo Total (R$)", "Preço Atual (R$)", "Valor Atual (R$)", "Dividendos Recebidos (R$)", "Dividendos a Receber (R$)", "Lucro/Prejuízo (R$)", "Lucro/Prejuízo com Div. (R$)", "Rentabilidade (%)", "Rentabilidade com Div. (%)" ]]
+        
+        # Renomear colunas para abreviações para caber na tela
+        novos_nomes = {
+            "Quantidade": "Qtd",
+            "Preço Médio (R$)": "PM (R$)",
+            "Custo Total (R$)": "Custo (R$)",
+            "Preço Atual (R$)": "Preço (R$)",
+            "Valor Atual (R$)": "Valor (R$)",
+            "Dividendos Recebidos (R$)": "Div. Rec. (R$)",
+            "Dividendos a Receber (R$)": "Div. Prev. (R$)",
+            "Lucro/Prejuízo (R$)": "L/P (R$)",
+            "Lucro/Prejuízo com Div. (R$)": "L/P c/ Div. (R$)",
+            "Rentabilidade (%)": "Rent. (%)",
+            "Rentabilidade com Div. (%)": "Rent. c/ Div. (%)"
+        }
+        df_para_exibir = df_para_exibir.rename(columns=novos_nomes)
+
+        formatador = { 
+            "Qtd": "{:,.8f}", 
+            "PM (R$)": "R$ {:,.2f}", 
+            "Custo (R$)": "R$ {:,.2f}", 
+            "Preço (R$)": "R$ {:,.2f}", 
+            "Valor (R$)": "R$ {:,.2f}", 
+            "Div. Rec. (R$)": "R$ {:,.2f}", 
+            "Div. Prev. (R$)": "R$ {:,.2f}", 
+            "L/P (R$)": "R$ {:+,.2f}", 
+            "L/P c/ Div. (R$)": "R$ {:+,.2f}", 
+            "Rent. (%)": "{:+.2f}%", 
+            "Rent. c/ Div. (%)": "{:+.2f}%" 
+        }
+        
+        st.dataframe(df_para_exibir.style.apply(lambda col: col.map(colorir_rentabilidade), subset=['L/P (R$)', 'L/P c/ Div. (R$)', 'Rent. (%)', 'Rent. c/ Div. (%)']).format(formatador, decimal=",", thousands="."), use_container_width=True)
+        
+        st.subheader("Detalhes dos Proventos")
+        if proventos_detalhados:
+            df_proventos = pd.DataFrame(proventos_detalhados)
+            df_proventos = df_proventos[df_proventos['Total a Receber (R$)'] > 0]
+            
+            if not df_proventos.empty:
+                df_proventos['Data Pagamento'] = df_proventos['Data Pagamento'].astype(str)
+                status_order = {'Qualificado': 1, 'Aguardando Pagamento': 2, 'Pago': 3, 'Provisionado': 4, 'Anunciado': 5}
+                df_proventos['Status_Order'] = df_proventos['Status'].map(status_order).fillna(99)
+                df_proventos.sort_values(by=['Status_Order', 'Data Pagamento'], ascending=[True, False], inplace=True)
+                df_proventos.drop(columns=['Status_Order'], inplace=True)
+                df_proventos['Data Ex'] = pd.to_datetime(df_proventos['Data Ex']).dt.strftime('%d/%m/%Y')
+                df_proventos['Data Pagamento'] = df_proventos['Data Pagamento'].apply(
+                    lambda x: x.strftime('%d/%m/%Y') if isinstance(x, (datetime, date)) else str(x)
+                )
+                
+                st.dataframe(df_proventos.style
+                    .apply(lambda col: col.map(colorir_status), subset=['Status'])
+                    .format({
+                        "Valor por Ação (R$)": "R$ {:,.4f}",
+                        "Total a Receber (R$)": "R$ {:,.2f}"
+                    }), use_container_width=True, hide_index=True)
+
+                df_hist_div = df_proventos.copy()
+                df_hist_div = df_hist_div[df_hist_div['Data Pagamento'] != 'A confirmar']
+                if not df_hist_div.empty:
+                    df_hist_div['Data Pagamento'] = pd.to_datetime(df_hist_div['Data Pagamento'], format='mixed')
+                    hoje = pd.to_datetime(date.today())
+                    data_inicio = hoje - pd.DateOffset(months=12)
+                    df_hist_div = df_hist_div[df_hist_div['Data Pagamento'] >= data_inicio]
+                    df_hist_div['AnoMes'] = df_hist_div['Data Pagamento'].dt.strftime('%Y-%m')
+                    recebidos = df_hist_div[df_hist_div['Data Pagamento'] < hoje].groupby('AnoMes')['Total a Receber (R$)'].sum()
+                    previstos = df_hist_div[df_hist_div['Data Pagamento'] >= hoje].groupby('AnoMes')['Total a Receber (R$)'].sum()
+                    df_grafico = pd.DataFrame({'Recebidos': recebidos, 'Previstos': previstos}).fillna(0)
+                    st.subheader('Histórico de Dividendos (Mês a Mês)')
+                    fig_div = px.bar(df_grafico, x=df_grafico.index, y=['Recebidos', 'Previstos'], barmode='group',
+                                     title='Dividendos Recebidos e Previstos por Mês',
+                                     labels={'value': 'R$','AnoMes': 'Mês'})
+                    st.plotly_chart(fig_div, use_container_width=True)
+            else:
+                st.info("Nenhum provento (qualificado ou provisionado) com valor a receber encontrado para as ações na sua carteira.")
+        else:
+            st.info("Nenhum provento (qualificado ou provisionado) encontrado para as ações na sua carteira.")
+
         st.subheader("Análise de Aportes")
         if lista_de_aportes:
             col_graf_aportes, col_lista_aportes = st.columns(2)
@@ -249,13 +351,16 @@ if minha_carteira:
                 df_aportes_detalhado.sort_values(by="Data", ascending=False, inplace=True)
                 df_aportes_detalhado['Valor do Aporte'] = df_aportes_detalhado['Valor do Aporte'].map('R$ {:,.2f}'.format)
                 st.dataframe(df_aportes_detalhado.rename(columns={'Ticker': 'Ativo'}), use_container_width=True, hide_index=True)
+        
         st.subheader("Análise Gráfica da Carteira")
         if not df_filtrado.empty:
             col_graf1, col_graf2 = st.columns(2)
             fig_alocacao_ativo = px.pie(df_filtrado, values='Valor Atual (R$)', names='Ativo', title='Alocação por Ativo')
             col_graf1.plotly_chart(fig_alocacao_ativo, use_container_width=True)
+            
             df_agrupado_tipo = df_filtrado.groupby('Tipo')['Valor Atual (R$)'].sum().reset_index()
             fig_alocacao_tipo = px.pie(df_agrupado_tipo, values='Valor Atual (R$)', names='Tipo', title='Alocação por Tipo de Ativo')
+            
             col_graf2.plotly_chart(fig_alocacao_tipo, use_container_width=True)
 else:
     st.info("A sua carteira está vazia. Adicione a sua primeira compra através do formulário na barra lateral.")
